@@ -17,7 +17,7 @@
   --brass:#d0aa5f; --brass-dark:#8f6d2f;
   --ink:#f2e9d8; --muted:#bba88f; --dim:#8c7a66;
   --panel:#231914; --panel-2:#2e211a; --rule:#4a372b;
-  --danger:#e07a63; --focus:#f0c879;
+  --danger:#e07a63; --focus:#f0c879; --ok:#86b86a;
   --f-display:"DM Serif Display", Georgia, "Times New Roman", serif;
   --f-body:"Figtree", system-ui, -apple-system, "Segoe UI", sans-serif;
   --f-spine:"Barlow Condensed", "Arial Narrow", "Roboto Condensed", sans-serif;
@@ -161,6 +161,30 @@ textarea.field{resize:vertical;min-height:84px}
 .source{margin:0;font-size:13px;color:var(--muted)}
 .cover-actions{display:flex;gap:8px;flex-wrap:wrap}
 .confirm{display:flex;gap:10px;align-items:center;flex-wrap:wrap;background:#3a1f18;border:1px solid #6b3a2e;border-radius:8px;padding:10px 12px;font-size:14px}
+/* Sync */
+.sync .dot{width:9px;height:9px;border-radius:50%;background:var(--dim);flex:none}
+.sync[data-state="off"] .dot{display:none}
+.sync[data-state="ok"] .dot{background:var(--ok)}
+.sync[data-state="pending"] .dot{background:var(--brass)}
+.sync[data-state="error"] .dot{background:var(--danger)}
+.sync[data-state="busy"] .dot{background:transparent;border:2px solid var(--brass);border-right-color:transparent;animation:spin .8s linear infinite}
+.lede{margin:0;color:var(--muted);font-size:14px;max-width:62ch}
+.help{font-size:13px;color:var(--muted);text-transform:none;letter-spacing:0}
+details.how{border:1px solid var(--rule);border-radius:10px;padding:10px 14px;font-size:14px}
+details.how summary{cursor:pointer;font-weight:600}
+details.how ol{margin:10px 0 2px;padding-left:20px;display:flex;flex-direction:column;gap:6px;color:var(--muted)}
+details.how b{color:var(--ink)}
+.check{display:flex;gap:10px;align-items:flex-start;font-size:14px}
+.check input{margin-top:4px;accent-color:var(--brass);width:16px;height:16px;flex:none}
+.check span small{display:block;color:var(--muted);font-size:13px}
+.out.bad{color:var(--danger)}
+.choices{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.choice{border:1px solid var(--rule);border-radius:10px;padding:14px;display:flex;flex-direction:column;gap:8px;background:var(--panel-2);min-width:0}
+.choice.wide{grid-column:1/-1}
+.choice h3{margin:0;font-family:var(--f-display);font-weight:400;font-size:20px;line-height:1.2}
+.choice p{margin:0;font-size:14px;color:var(--muted)}
+.choice p b{color:var(--ink);font-variant-numeric:tabular-nums}
+.choice .btn{margin-top:auto;justify-content:center}
 footer{display:flex;flex-wrap:wrap;gap:10px 18px;align-items:center;justify-content:space-between;color:var(--dim);font-size:13px;border-top:1px solid var(--rule);padding-top:16px}
 footer .actions{justify-content:flex-start}
 .toast{position:fixed;left:50%;bottom:calc(20px + env(safe-area-inset-bottom,0px));transform:translateX(-50%);background:var(--panel-2);border:1px solid var(--brass-dark);padding:10px 16px;border-radius:8px;box-shadow:0 10px 30px rgba(0,0,0,.5);z-index:20;max-width:calc(100vw - 32px)}
@@ -173,6 +197,7 @@ footer .actions{justify-content:flex-start}
   .meta{align-items:center}
   .facts{justify-content:center}
   .grid2{grid-template-columns:1fr}
+  .choices{grid-template-columns:1fr}
 }
 @media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
 </style>
@@ -204,6 +229,7 @@ footer .actions{justify-content:flex-start}
       <button type="button" id="v-spines" aria-pressed="false">Spines</button>
     </div>
     <button id="fill-btn" class="btn" type="button">Fetch covers &amp; genres</button>
+    <button id="sync-btn" class="btn sync" type="button" data-state="off"><span class="dot" aria-hidden="true"></span><span id="sync-txt">Sync</span></button>
     <button id="add-btn" class="btn primary" type="button">+ Add a book</button>
   </div>
 
@@ -211,8 +237,9 @@ footer .actions{justify-content:flex-start}
   <section id="case" class="case" aria-label="Bookcase"></section>
 
   <footer>
-    <span>Saved in this browser. Book details, covers and genres come from <a href="https://openlibrary.org" target="_blank" rel="noopener">Open Library</a>.</span>
+    <span><span id="saved-where">Saved in this browser.</span> Book details, covers and genres come from <a href="https://openlibrary.org" target="_blank" rel="noopener">Open Library</a>.</span>
     <div class="actions">
+      <button id="sync-settings" class="btn ghost" type="button">Sync settings</button>
       <button id="export-btn" class="btn ghost" type="button">Download backup</button>
       <label class="btn ghost" for="import-file" style="cursor:pointer">Restore backup</label>
       <input id="import-file" type="file" accept="application/json,.json" hidden>
@@ -254,6 +281,41 @@ footer .actions{justify-content:flex-start}
 </dialog>
 
 <dialog id="book-dlg" aria-labelledby="book-h"><div class="dlg" id="book-body"></div></dialog>
+<dialog id="sync-dlg" aria-labelledby="sync-h">
+  <form class="dlg" id="sync-form" novalidate>
+    <div class="dlg-head">
+      <h2 id="sync-h">Sync between devices</h2>
+      <button class="x" type="button" data-close aria-label="Close">×</button>
+    </div>
+    <p class="lede">Your phone and computer share one file, <code>hearthwood-library.json</code>, kept in a private GitHub repository that only you can see. Set this up once on each device, with the same repository and token.</p>
+    <details class="how">
+      <summary>How to set it up</summary>
+      <ol>
+        <li>On GitHub, make a new <b>private</b> repository, for example <b>hearthwood-data</b>. Don't use the website's repository: it's public.</li>
+        <li>Make an access token at <a href="https://github.com/settings/personal-access-tokens/new" target="_blank" rel="noopener">github.com/settings/personal-access-tokens/new</a>. Under <b>Repository access</b> choose <b>Only select repositories</b> and pick your data repository. Under <b>Permissions → Contents</b> choose <b>Read and write</b>. It needs nothing else.</li>
+        <li>Enter the repository and paste the token below, then press <b>Save and sync</b>.</li>
+        <li>On your other device, open this page and do step 3 with the same repository and token.</li>
+      </ol>
+    </details>
+    <div class="grid2">
+      <label class="l full">Data repository<input id="s-repo" class="field" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="your-name/hearthwood-data"></label>
+      <label class="l full">Access token<input id="s-token" class="field" type="password" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="github_pat_…"></label>
+      <label class="l full">This device's name<input id="s-device" class="field" autocomplete="off" placeholder="e.g. iPhone"><span class="help">Shown when the two devices' shelves need comparing.</span></label>
+      <label class="check full"><input id="s-auto" type="checkbox"><span>Sync automatically<small>Checks GitHub when the page opens and saves a few seconds after each change. Every save is a commit in the data repository.</small></span></label>
+    </div>
+    <p class="help" style="margin:0">The token is kept only in this browser and is never put in backups. If it might have leaked, delete it on GitHub and make a new one.</p>
+    <div id="sync-out" class="out" aria-live="polite"></div>
+    <div class="actions" style="justify-content:space-between">
+      <button id="sync-off" class="btn danger" type="button">Stop syncing on this device</button>
+      <span style="display:flex;gap:10px;flex-wrap:wrap;margin-left:auto">
+        <button class="btn ghost" type="button" data-close>Cancel</button>
+        <button id="sync-save" class="btn primary" type="submit">Save and sync</button>
+      </span>
+    </div>
+  </form>
+</dialog>
+
+<dialog id="conflict-dlg" aria-labelledby="conflict-h"><div class="dlg" id="conflict-body"></div></dialog>
 <div id="toast" class="toast" role="status" hidden></div>
 
 <script>
@@ -316,9 +378,28 @@ function genreFromSubjects(subjects){
 
 /* ---------------- storage ---------------- */
 const DATA_KEY = "hearthwood-data-v1", VIEW_KEY = "hearthwood-view-v1", APP_ID = "hearthwood-library";
-const DEVICE = (navigator.userAgentData && navigator.userAgentData.platform) || (navigator.platform||"Browser");
-let data = { version:1, app:APP_ID, sync:{ rev:0, modified:null, device:DEVICE }, books:[] };
+function guessDevice(){
+  const ua = navigator.userAgent || "";
+  if (/iPhone/.test(ua)) return "iPhone";
+  if (/iPad/.test(ua) || (/Macintosh/.test(ua) && navigator.maxTouchPoints > 1)) return "iPad";
+  if (/Android/.test(ua)) return /Mobile/.test(ua) ? "Android phone" : "Android tablet";
+  if (/Windows/.test(ua)) return "Windows PC";
+  if (/CrOS/.test(ua)) return "Chromebook";
+  if (/Macintosh/.test(ua)) return "Mac";
+  if (/Linux/.test(ua)) return "Linux computer";
+  return "This browser";
+}
+const deviceName = () => (sync.device || "").trim() || guessDevice();
+let data = { version:1, app:APP_ID, sync:{ rev:0, modified:null, device:null }, books:[] };
 let lastSaved = "";
+/* Sync settings live apart from the books, so backups never carry the token. */
+const SYNC_KEY = "hearthwood-sync-v1", SYNC_PATH = "hearthwood-library.json";
+let sync = { repo:"", token:"", device:"", auto:false, sha:null, syncedRev:null, lastSync:null };
+try{ const s = JSON.parse(localStorage.getItem(SYNC_KEY) || "null"); if (s && typeof s === "object") sync = Object.assign(sync, s); }catch(e){}
+function saveSyncSettings(){ try{ localStorage.setItem(SYNC_KEY, JSON.stringify(sync)); }catch(e){} }
+const syncOn = () => !!(sync.repo && sync.token);
+const isDirty = () => syncOn() && (data.sync && data.sync.rev || 0) !== sync.syncedRev;
+let syncState = "ok", syncMsg = "", syncKind = "", syncBusy = null, syncAgain = false, autoTimer = null;
 function loadData(){
   try{
     const raw = localStorage.getItem(DATA_KEY);
@@ -331,9 +412,12 @@ function flushSave(){
   clearTimeout(saveTimer); saveTimer = null;
   const books = JSON.stringify(data.books);
   if (books === lastSaved) return;
-  data.sync = { rev:(data.sync&&data.sync.rev||0)+1, modified:new Date().toISOString(), device:DEVICE };
-  try{ localStorage.setItem(DATA_KEY, JSON.stringify(data)); lastSaved = books; }
+  data.sync = { rev:(data.sync&&data.sync.rev||0)+1, modified:new Date().toISOString(), device:deviceName() };
+  lastSaved = books;
+  try{ localStorage.setItem(DATA_KEY, JSON.stringify(data)); }
   catch(e){ toast("Your browser's storage is full. Remove a few cover photos, or download a backup."); }
+  paintSync();
+  if (syncOn() && sync.auto){ clearTimeout(autoTimer); autoTimer = setTimeout(()=>runSync({quiet:true}), 4000); }
 }
 window.addEventListener("beforeunload", flushSave);
 window.addEventListener("pagehide", flushSave);
@@ -620,7 +704,8 @@ $("#fill-btn").addEventListener("click", fillAll);
 /* ---------------- book dialog ---------------- */
 const bookDlg = $("#book-dlg");
 let notesTimer = null;
-function openBook(id){ drawBook(id); if (!bookDlg.open) bookDlg.showModal(); }
+let openBookId = null;
+function openBook(id){ openBookId = id; drawBook(id); if (!bookDlg.open) bookDlg.showModal(); }
 function drawBook(id){
   const b = byId(id); if (!b){ bookDlg.close(); return; }
   const L = look(b), body = $("#book-body");
@@ -688,17 +773,17 @@ function drawBook(id){
       h("button",{class:"btn danger",type:"button",onclick:()=>{ confirmBox.hidden = false; }},"Remove from library"),
       h("button",{class:"btn primary",type:"button",onclick:()=>bookDlg.close()},"Done")));
 }
-for (const d of [addDlg, bookDlg]) d.addEventListener("click", e=>{ if (e.target === d) d.close(); });
+for (const d of [addDlg, bookDlg, $("#sync-dlg")]) d.addEventListener("click", e=>{ if (e.target === d) d.close(); });
 bookDlg.addEventListener("close", flushSave);
 
 /* ---------------- backup ---------------- */
-$("#export-btn").addEventListener("click", ()=>{
-  flushSave();
-  const blob = new Blob([JSON.stringify(data, null, 2)], {type:"application/json"});
-  const a = h("a",{href:URL.createObjectURL(blob), download:`hearthwood-library-${new Date().toISOString().slice(0,10)}.json`});
+function downloadJSON(obj, suffix){
+  const blob = new Blob([JSON.stringify(obj, null, 2)], {type:"application/json"});
+  const a = h("a",{href:URL.createObjectURL(blob), download:`hearthwood-library-${new Date().toISOString().slice(0,10)}${suffix?"-"+suffix:""}.json`});
   document.body.append(a); a.click(); a.remove();
   setTimeout(()=>URL.revokeObjectURL(a.href), 2000);
-});
+}
+$("#export-btn").addEventListener("click", ()=>{ flushSave(); downloadJSON(data); });
 $("#import-file").addEventListener("change", async e=>{
   const file = e.target.files && e.target.files[0]; e.target.value = "";
   if (!file) return;
@@ -712,6 +797,258 @@ $("#import-file").addEventListener("change", async e=>{
   }catch(err){ toast("That file isn't a Hearthwood Library backup."); }
 });
 
+
+/* ---------------- sync with a private GitHub repository ----------------
+   Both devices read and write one JSON file through GitHub's contents API.
+   `sync.sha` is the file version this device last saw; `sync.syncedRev` is the
+   local edit counter at that moment. Remote moved + local edited = a conflict,
+   which the person resolves; nothing is overwritten silently. */
+class SyncError extends Error{ constructor(msg, kind){ super(msg); this.kind = kind; } }
+function normRepo(v){
+  v = String(v||"").trim().replace(/\.git$/,"").replace(/\/+$/,"");
+  const m = v.match(/github\.com[/:]([^/\s]+\/[^/\s]+)/); if (m) v = m[1];
+  return /^[A-Za-z0-9-]+\/[A-Za-z0-9._-]+$/.test(v) ? v : null;
+}
+function gh(cfg, path, opts={}){
+  return fetch("https://api.github.com/repos/" + cfg.repo + path, { cache:"no-store", ...opts,
+    headers:{ Accept:"application/vnd.github+json", Authorization:"Bearer " + cfg.token, "X-GitHub-Api-Version":"2022-11-28", ...(opts.headers||{}) } });
+}
+function ghError(r, cfg, writing){
+  if (r.status === 401) return new SyncError("GitHub didn't accept the token. It may be mistyped, expired or deleted. Make a new one and paste it in Sync settings.", "auth");
+  if ((r.status === 403 || r.status === 429) && r.headers.get("x-ratelimit-remaining") === "0") return new SyncError("GitHub is limiting requests for a while. Try again in a few minutes.", "net");
+  if (r.status === 404) return new SyncError(`GitHub can't find ${cfg.repo}, or the token isn't allowed to see it. Check the name, and that the token's repository access includes it.`, "auth");
+  if (r.status === 403) return new SyncError(writing ? `The token can read ${cfg.repo} but not save to it. On GitHub, set the token's Contents permission to “Read and write”.` : `The token isn't allowed to read ${cfg.repo}. Give it Contents “Read and write” on that repository.`, "auth");
+  return new SyncError(`GitHub answered with an error (${r.status}). Try again in a minute.`, "net");
+}
+async function ghFetch(fn){
+  try{ return await fn(); }
+  catch(e){ if (e instanceof SyncError) throw e; throw new SyncError("Couldn't reach GitHub. Check your internet connection and try again.", "net"); }
+}
+function toB64(str){
+  const bytes = new TextEncoder().encode(str); let bin = "";
+  for (let i=0;i<bytes.length;i+=0x8000) bin += String.fromCharCode.apply(null, bytes.subarray(i, i+0x8000));
+  return btoa(bin);
+}
+function fromB64(b64){
+  const bin = atob(String(b64).replace(/\s/g,"")), bytes = new Uint8Array(bin.length);
+  for (let i=0;i<bin.length;i++) bytes[i] = bin.charCodeAt(i);
+  return new TextDecoder().decode(bytes);
+}
+/* Returns {sha, data} for the shared file, or null when the repository has no file yet. */
+async function readRemote(cfg){
+  return ghFetch(async ()=>{
+    const r = await gh(cfg, "/contents/" + SYNC_PATH);
+    if (r.status === 404){
+      const rr = await gh(cfg, "");          // is it the file or the whole repository that's missing?
+      if (!rr.ok) throw ghError(rr, cfg);
+      return null;
+    }
+    if (!r.ok) throw ghError(r, cfg);
+    const meta = await r.json();
+    let b64 = meta.content;
+    if (!b64 || meta.encoding !== "base64"){ // files over 1 MB come back without content
+      const br = await gh(cfg, "/git/blobs/" + meta.sha); if (!br.ok) throw ghError(br, cfg);
+      b64 = (await br.json()).content;
+    }
+    let d = null; try{ d = JSON.parse(fromB64(b64)); }catch(e){}
+    if (!d || d.app !== APP_ID || !Array.isArray(d.books))
+      throw new SyncError(`${SYNC_PATH} in ${cfg.repo} isn't a Hearthwood Library file. Rename or remove it on GitHub, or use another repository.`, "data");
+    if (!d.sync) d.sync = { rev:0, modified:null, device:null };
+    return { sha: meta.sha, data: d };
+  });
+}
+/* Saves this device's shelf over version `sha` (null = new file). False if GitHub's copy moved meanwhile. */
+async function writeRemote(sha){
+  flushSave();
+  const rev = data.sync.rev, n = data.books.length;
+  const body = { message:`Update shelf from ${deviceName()} (${n} book${n===1?"":"s"})`, content: toB64(JSON.stringify(data)) };
+  if (sha) body.sha = sha;
+  return ghFetch(async ()=>{
+    const r = await gh(sync, "/contents/" + SYNC_PATH, { method:"PUT", headers:{"Content-Type":"application/json"}, body:JSON.stringify(body) });
+    if (r.status === 409 || r.status === 422) return false;
+    if (!r.ok) throw ghError(r, sync, true);
+    const j = await r.json();
+    sync.sha = j.content.sha; sync.syncedRev = rev; sync.lastSync = new Date().toISOString(); saveSyncSettings();
+    return true;
+  });
+}
+function adoptRemote(remote){
+  clearTimeout(saveTimer); saveTimer = null;
+  data = remote.data; lastSaved = JSON.stringify(data.books);
+  try{ localStorage.setItem(DATA_KEY, JSON.stringify(data)); }
+  catch(e){ toast("Your browser's storage is full. Remove a few cover photos, or download a backup."); }
+  sync.sha = remote.sha; sync.syncedRev = data.sync.rev; sync.lastSync = new Date().toISOString(); saveSyncSettings();
+  render();
+  if (bookDlg.open) drawBook(openBookId);
+}
+function runSync(opts={}){
+  if (!syncOn()) return Promise.resolve();
+  if (syncBusy){ syncAgain = true; return syncBusy; }
+  syncBusy = (async ()=>{
+    paintSync();
+    const finish = (msg)=>{ syncState = "ok"; syncKind = ""; syncMsg = msg; if (!opts.quiet) toast(msg); };
+    try{
+      for (let attempt=0; attempt<3; attempt++){
+        flushSave();
+        const remote = await readRemote(sync);
+        if (!remote){
+          if (await writeRemote(null)) return finish(data.books.length ? `Uploaded your shelf to ${sync.repo}.` : "Connected. Your shelf will be saved to GitHub.");
+          continue;
+        }
+        if (remote.sha === sync.sha){
+          if (!isDirty()) return finish("Your shelf is up to date.");
+          if (await writeRemote(remote.sha)) return finish("Saved your changes to GitHub.");
+          continue;
+        }
+        /* GitHub's copy changed since this device last synced (or this device never has). */
+        if (JSON.stringify(remote.data.books) === JSON.stringify(data.books)){
+          sync.sha = remote.sha; sync.syncedRev = data.sync.rev; sync.lastSync = new Date().toISOString(); saveSyncSettings();
+          return finish("Your shelf is up to date.");
+        }
+        const firstTime = sync.sha == null;
+        if ((firstTime && !data.books.length) || (!firstTime && !isDirty())){
+          adoptRemote(remote);
+          const from = remote.data.sync.device;
+          return finish(`Got the latest shelf${from && from !== deviceName() ? " from your " + from : ""}.`);
+        }
+        syncState = "conflict"; syncKind = "conflict"; syncMsg = "Your shelf changed here and on another device. Press Sync to choose which to keep.";
+        if (opts.quiet) toast(syncMsg); else showConflict(remote);
+        return;
+      }
+      throw new SyncError("GitHub's copy kept changing while saving. Press Sync to try again.", "net");
+    }catch(e){
+      const was = syncState;
+      syncState = "error"; syncKind = e.kind || "net"; syncMsg = e.message || "Sync failed. Try again.";
+      if (!opts.quiet || was !== "error") toast(syncMsg);
+    }finally{
+      syncBusy = null; paintSync();
+      if (syncAgain){ syncAgain = false; if (isDirty()) setTimeout(()=>runSync({quiet:true}), 500); }
+    }
+  })();
+  return syncBusy;
+}
+function ago(iso){
+  if (!iso) return "";
+  const s = (Date.now() - new Date(iso).getTime())/1000;
+  const rt = new Intl.RelativeTimeFormat(undefined, {numeric:"auto"});
+  if (s < 45) return "just now";
+  if (s < 3600) return rt.format(-Math.round(s/60), "minute");
+  if (s < 86400) return rt.format(-Math.round(s/3600), "hour");
+  return rt.format(-Math.round(s/86400), "day");
+}
+function when(iso){ return iso ? new Date(iso).toLocaleString(undefined, {dateStyle:"medium", timeStyle:"short"}) : "unknown time"; }
+function paintSync(){
+  const btn = $("#sync-btn"); if (!btn) return;
+  let st, txt, tip;
+  if (!syncOn()){ st = "off"; txt = "Sync"; tip = "Set up sync with your other devices"; }
+  else if (syncBusy){ st = "busy"; txt = "Syncing…"; tip = "Syncing with GitHub"; }
+  else if (syncState === "conflict"){ st = "error"; txt = "Choose a shelf"; tip = syncMsg; }
+  else if (syncState === "error"){ st = "error"; txt = "Sync"; tip = syncMsg; }
+  else if (isDirty()){ st = "pending"; txt = "Sync"; tip = "Changes waiting to be saved to GitHub"; }
+  else { st = "ok"; txt = "Synced"; tip = "Up to date with GitHub" + (sync.lastSync ? ", checked " + ago(sync.lastSync) : ""); }
+  btn.dataset.state = st; $("#sync-txt").textContent = txt; btn.title = tip;
+  btn.setAttribute("aria-label", txt + (st === "off" ? "" : ": " + tip));
+  $("#saved-where").textContent = syncOn() ? `Saved in this browser and synced to ${sync.repo} on GitHub.` : "Saved in this browser.";
+}
+
+/* Two shelves disagree: show both and let the person pick. The losing side is downloaded first. */
+const conflictDlg = $("#conflict-dlg");
+function showConflict(remote){
+  const here = data, there = remote.data;
+  const hereIds = new Set(here.books.map(b=>b.id)), thereIds = new Set(there.books.map(b=>b.id));
+  const onlyHere = here.books.filter(b=>!thereIds.has(b.id)).length, onlyThere = there.books.filter(b=>!hereIds.has(b.id)).length;
+  const n = k => k === 1 ? "1 book" : k + " books";
+  const busy = btns => btns.forEach(b=>b.disabled = true);
+  const done = async ok => { conflictDlg.close(); if (!ok) await runSync(); else { syncState = "ok"; syncKind = ""; paintSync(); } };
+  const keepHere = h("button",{class:"btn primary",type:"button",onclick:async ()=>{
+    busy(all); downloadJSON(there, "from-github");
+    try{ const ok = await writeRemote(remote.sha); if (ok) toast("Kept this device's shelf. GitHub's version was downloaded as a backup."); await done(ok); }
+    catch(e){ syncState = "error"; syncMsg = e.message; toast(e.message); conflictDlg.close(); paintSync(); }
+  }}, "Keep this device's shelf");
+  const keepThere = h("button",{class:"btn primary",type:"button",onclick:async ()=>{
+    busy(all); flushSave(); downloadJSON(data, "this-device");
+    adoptRemote(remote); syncState = "ok"; syncKind = "";
+    toast("Switched to the shelf on GitHub. This device's version was downloaded as a backup.");
+    conflictDlg.close(); paintSync();
+  }}, "Keep GitHub's shelf");
+  const combine = h("button",{class:"btn",type:"button",onclick:async ()=>{
+    busy(all); flushSave();
+    const ids = new Set(data.books.map(b=>b.id));
+    data.books = [...data.books, ...there.books.filter(b=>b && b.id && !ids.has(b.id))];
+    flushSave(); render();
+    try{ const ok = await writeRemote(remote.sha); if (ok) toast(`Combined both shelves: ${n(data.books.length)}.`); await done(ok); }
+    catch(e){ syncState = "error"; syncMsg = e.message; toast(e.message); conflictDlg.close(); paintSync(); }
+  }}, "Combine both");
+  const all = [keepHere, keepThere, combine];
+  const thereDevice = there.sync.device && there.sync.device !== deviceName() ? "your " + there.sync.device : "another device";
+  $("#conflict-body").replaceChildren(
+    h("div",{class:"dlg-head"}, h("h2",{id:"conflict-h"},"Two different shelves"),
+      h("button",{class:"x",type:"button","aria-label":"Decide later",onclick:()=>conflictDlg.close()},"×")),
+    h("p",{class:"lede"},"This device and GitHub both changed since they last synced. Choose which shelf to keep. The other one is downloaded to this device as a backup file first, so nothing is lost."),
+    h("div",{class:"choices"},
+      h("div",{class:"choice"}, h("h3",null,`This device (${deviceName()})`),
+        h("p",null, h("b",null,n(here.books.length)), onlyHere ? `, ${onlyHere} not on GitHub` : ""),
+        h("p",null,"Last changed ", when(here.sync.modified)), keepHere),
+      h("div",{class:"choice"}, h("h3",null,"On GitHub"),
+        h("p",null, h("b",null,n(there.books.length)), onlyThere ? `, ${onlyThere} not on this device` : ""),
+        h("p",null,"Last changed ", when(there.sync.modified), " on ", thereDevice), keepThere),
+      h("div",{class:"choice wide"}, h("h3",null,"Or combine them"),
+        h("p",null,"Keeps every book from both shelves. For a book on both, this device's copy is kept. A book you removed on one device comes back."), combine)),
+    h("div",{class:"actions"}, h("button",{class:"btn ghost",type:"button",onclick:()=>conflictDlg.close()},"Decide later")));
+  if (!conflictDlg.open) conflictDlg.showModal();
+}
+
+/* Settings dialog */
+const syncDlg = $("#sync-dlg");
+function syncOut(msg, bad){ const o = $("#sync-out"); o.className = "out" + (bad ? " bad" : ""); o.replaceChildren(...[msg].flat()); }
+function openSyncDlg(){
+  $("#s-repo").value = sync.repo || "";
+  $("#s-token").value = "";
+  $("#s-token").placeholder = sync.token ? "Saved. Paste a new one to replace it." : "github_pat_…";
+  $("#s-device").value = sync.device || ""; $("#s-device").placeholder = guessDevice();
+  $("#s-auto").checked = !!sync.auto;
+  $("#sync-off").hidden = !syncOn();
+  syncDlg.querySelector("details.how").open = !syncOn();
+  if (syncOn() && syncState === "error") syncOut(syncMsg, true);
+  else if (syncOn()) syncOut(sync.lastSync ? `Syncing with ${sync.repo}. Last synced ${ago(sync.lastSync)}.` : `Set up for ${sync.repo}, not synced yet.`);
+  else syncOut("");
+  syncDlg.showModal();
+  (syncOn() ? $("#sync-save") : $("#s-repo")).focus();
+}
+$("#sync-form").addEventListener("submit", async e=>{
+  e.preventDefault();
+  const repo = normRepo($("#s-repo").value), token = $("#s-token").value.trim() || sync.token;
+  if (!repo){ syncOut("Enter the repository as owner/name, for example your-name/hearthwood-data.", true); $("#s-repo").focus(); return; }
+  if (!token){ syncOut("Paste the access token from GitHub.", true); $("#s-token").focus(); return; }
+  const btn = $("#sync-save"); btn.disabled = true;
+  syncOut([h("span",{class:"spinner","aria-hidden":"true"})," Checking the repository…"]);
+  try{
+    const info = await ghFetch(async ()=>{ const r = await gh({repo, token}, ""); if (!r.ok) throw ghError(r, {repo, token}); return r.json(); });
+    if (info.private === false){ syncOut(`${repo} is public, so anyone could read your shelf. Make it private on GitHub (Settings → Danger Zone → Change visibility), or use a different repository.`, true); return; }
+    if (info.permissions && info.permissions.push === false){ syncOut(`The token can read ${repo} but not save to it. On GitHub, set the token's Contents permission to “Read and write”.`, true); return; }
+    if (repo !== sync.repo){ sync.sha = null; sync.syncedRev = null; sync.lastSync = null; }
+    sync.repo = repo; sync.token = token; sync.device = $("#s-device").value.trim(); sync.auto = $("#s-auto").checked;
+    saveSyncSettings(); syncState = "ok"; syncKind = "";
+    syncDlg.close(); paintSync();
+    await runSync();
+  }catch(err){ syncOut(err.message || "Couldn't check the repository.", true); }
+  finally{ btn.disabled = false; }
+});
+$("#sync-off").addEventListener("click", ()=>{
+  sync = Object.assign(sync, { repo:"", token:"", sha:null, syncedRev:null, lastSync:null, auto:false });
+  saveSyncSettings(); syncState = "ok"; syncKind = ""; syncDlg.close(); paintSync();
+  toast("This device stopped syncing. Your books stay here, and on GitHub.");
+});
+$("#sync-btn").addEventListener("click", ()=>{
+  if (!syncOn() || syncKind === "auth" || syncKind === "data") openSyncDlg();
+  else runSync();
+});
+$("#sync-settings").addEventListener("click", openSyncDlg);
+conflictDlg.addEventListener("click", e=>{ if (e.target === conflictDlg) conflictDlg.close(); });
+document.addEventListener("visibilitychange", ()=>{
+  if (document.visibilityState === "visible" && syncOn() && sync.auto && Date.now() - new Date(sync.lastSync||0).getTime() > 30000) runSync({quiet:true});
+});
+
 $("#search").addEventListener("input", render);
 $("#sort").addEventListener("change", render);
 $("#v-covers").addEventListener("click", ()=>setView("covers"));
@@ -719,6 +1056,8 @@ $("#v-spines").addEventListener("click", ()=>setView("spines"));
 $("#add-btn").addEventListener("click", openAdd);
 loadData();
 setView(view);
+paintSync();
+if (syncOn() && sync.auto) runSync({quiet:true});
 </script>
 </body>
 </html>
