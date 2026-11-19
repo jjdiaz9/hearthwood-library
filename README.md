@@ -16,27 +16,28 @@ a copy and **Restore backup** to load it in another browser.
 
 ## Sync between your phone and computer
 
-**Sync** keeps one shelf on all your devices. They share one file, `hearthwood-library.json`, in a
-**private** GitHub repository you own. Nothing else is involved, and it works in a phone browser.
+**Sync** keeps one shelf on all your devices. They share one file, `hearthwood-library.json`, kept on a
+separate `hearthwood-data` branch of a GitHub repository. This website's own repository works. Because the
+data lives on its own branch, syncing never changes `main` or rebuilds the site. It works in a phone browser.
 
-1. Make a new private repository, for example `hearthwood-data`. Don't use this website's repository: it's public.
-2. Make a fine-grained access token at <https://github.com/settings/personal-access-tokens/new>.
-   Under **Repository access** choose **Only select repositories** and pick the data repository.
+1. Make a fine-grained access token at <https://github.com/settings/personal-access-tokens/new>.
+   Under **Repository access** choose **Only select repositories** and pick `hearthwood-library`.
    Under **Permissions → Contents** choose **Read and write**. It needs nothing else.
-3. On the site, press **Sync**, enter `your-name/hearthwood-data`, paste the token and press **Save and sync**.
-4. Do step 3 on your other device. The shelf comes down from GitHub.
+2. On the site, press **Sync**. The repository is filled in for you. Paste the token and press **Save and sync**.
+   The `hearthwood-data` branch is created the first time.
+3. Do step 2 on your other device. The shelf comes down from GitHub.
+
+**This repository is public, so anyone can read the shelf file**, including ratings, notes and any cover
+photos you took. The page warns you once before it uses a public repository. If you'd rather keep the
+shelf to yourself, use a private repository instead. Setup is the same.
 
 The dot on the Sync button shows the state: green is up to date, gold means changes are waiting to be
 sent, red needs your attention. **Sync automatically** (off by default) checks GitHub when the page
-opens and saves a few seconds after each change. Each save is a commit in the data repository.
+opens and saves a few seconds after each change. Each save is a commit on the `hearthwood-data` branch.
 
 If both devices changed the shelf before syncing, nothing is overwritten. You choose this device's
 shelf, GitHub's shelf, or a combination of both. The shelf you don't keep is downloaded as a backup file first.
 
-The token is stored only in each browser you set up and never goes into backups. Any other page you
-publish on the same `github.io` address could read it in that browser, so keep the token limited to
-the data repository. If it might have leaked, delete it on GitHub and make a new one.
-
-## Running it
-
-It's one file, `index.html`, with no build step. Open it in a browser, or visit the GitHub Pages site.
+The token is stored only in each browser you set up and never goes into backups. It can change files in the
+repository it's given, which here includes the website. Any other page you publish on the same `github.io`
+address could read it in that browser. If it might have leaked, delete it on GitHub and make a new one.

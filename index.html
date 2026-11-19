@@ -287,21 +287,21 @@ footer .actions{justify-content:flex-start}
       <h2 id="sync-h">Sync between devices</h2>
       <button class="x" type="button" data-close aria-label="Close">×</button>
     </div>
-    <p class="lede">Your phone and computer share one file, <code>hearthwood-library.json</code>, kept in a private GitHub repository that only you can see. Set this up once on each device, with the same repository and token.</p>
+    <p class="lede">Your phone and computer share one file, <code>hearthwood-library.json</code>, kept on its own <code>hearthwood-data</code> branch of a GitHub repository, so syncing never touches the website itself. Set this up once on each device, with the same repository and token.</p>
     <details class="how">
       <summary>How to set it up</summary>
       <ol>
-        <li>On GitHub, make a new <b>private</b> repository, for example <b>hearthwood-data</b>. Don't use the website's repository: it's public.</li>
-        <li>Make an access token at <a href="https://github.com/settings/personal-access-tokens/new" target="_blank" rel="noopener">github.com/settings/personal-access-tokens/new</a>. Under <b>Repository access</b> choose <b>Only select repositories</b> and pick your data repository. Under <b>Permissions → Contents</b> choose <b>Read and write</b>. It needs nothing else.</li>
+        <li>Pick the repository: this website's own repository works. If it's public, anyone can read your shelf, including ratings, notes and photos. Use a private repository if you'd rather keep it to yourself.</li>
+        <li>Make an access token at <a href="https://github.com/settings/personal-access-tokens/new" target="_blank" rel="noopener">github.com/settings/personal-access-tokens/new</a>. Under <b>Repository access</b> choose <b>Only select repositories</b> and pick that repository. Under <b>Permissions → Contents</b> choose <b>Read and write</b>. It needs nothing else.</li>
         <li>Enter the repository and paste the token below, then press <b>Save and sync</b>.</li>
         <li>On your other device, open this page and do step 3 with the same repository and token.</li>
       </ol>
     </details>
     <div class="grid2">
-      <label class="l full">Data repository<input id="s-repo" class="field" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="your-name/hearthwood-data"></label>
+      <label class="l full">Data repository<input id="s-repo" class="field" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="your-name/hearthwood-library"></label>
       <label class="l full">Access token<input id="s-token" class="field" type="password" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="github_pat_…"></label>
       <label class="l full">This device's name<input id="s-device" class="field" autocomplete="off" placeholder="e.g. iPhone"><span class="help">Shown when the two devices' shelves need comparing.</span></label>
-      <label class="check full"><input id="s-auto" type="checkbox"><span>Sync automatically<small>Checks GitHub when the page opens and saves a few seconds after each change. Every save is a commit in the data repository.</small></span></label>
+      <label class="check full"><input id="s-auto" type="checkbox"><span>Sync automatically<small>Checks GitHub when the page opens and saves a few seconds after each change. Every save is a commit on the repository's hearthwood-data branch.</small></span></label>
     </div>
     <p class="help" style="margin:0">The token is kept only in this browser and is never put in backups. If it might have leaked, delete it on GitHub and make a new one.</p>
     <div id="sync-out" class="out" aria-live="polite"></div>
@@ -393,7 +393,7 @@ const deviceName = () => (sync.device || "").trim() || guessDevice();
 let data = { version:1, app:APP_ID, sync:{ rev:0, modified:null, device:null }, books:[] };
 let lastSaved = "";
 /* Sync settings live apart from the books, so backups never carry the token. */
-const SYNC_KEY = "hearthwood-sync-v1", SYNC_PATH = "hearthwood-library.json";
+const SYNC_KEY = "hearthwood-sync-v1", SYNC_PATH = "hearthwood-library.json", SYNC_BRANCH = "hearthwood-data";
 let sync = { repo:"", token:"", device:"", auto:false, sha:null, syncedRev:null, lastSync:null };
 try{ const s = JSON.parse(localStorage.getItem(SYNC_KEY) || "null"); if (s && typeof s === "object") sync = Object.assign(sync, s); }catch(e){}
 function saveSyncSettings(){ try{ localStorage.setItem(SYNC_KEY, JSON.stringify(sync)); }catch(e){} }
@@ -798,8 +798,9 @@ $("#import-file").addEventListener("change", async e=>{
 });
 
 
-/* ---------------- sync with a private GitHub repository ----------------
-   Both devices read and write one JSON file through GitHub's contents API.
+/* ---------------- sync through a GitHub repository ----------------
+   Both devices read and write one JSON file through GitHub's contents API, on a
+   branch of its own so data commits never rebuild the published site.
    `sync.sha` is the file version this device last saw; `sync.syncedRev` is the
    local edit counter at that moment. Remote moved + local edited = a conflict,
    which the person resolves; nothing is overwritten silently. */
@@ -837,9 +838,9 @@ function fromB64(b64){
 /* Returns {sha, data} for the shared file, or null when the repository has no file yet. */
 async function readRemote(cfg){
   return ghFetch(async ()=>{
-    const r = await gh(cfg, "/contents/" + SYNC_PATH);
+    const r = await gh(cfg, "/contents/" + SYNC_PATH + "?ref=" + SYNC_BRANCH);
     if (r.status === 404){
-      const rr = await gh(cfg, "");          // is it the file or the whole repository that's missing?
+      const rr = await gh(cfg, "");          // is it the file/branch or the whole repository that's missing?
       if (!rr.ok) throw ghError(rr, cfg);
       return null;
     }
@@ -852,18 +853,32 @@ async function readRemote(cfg){
     }
     let d = null; try{ d = JSON.parse(fromB64(b64)); }catch(e){}
     if (!d || d.app !== APP_ID || !Array.isArray(d.books))
-      throw new SyncError(`${SYNC_PATH} in ${cfg.repo} isn't a Hearthwood Library file. Rename or remove it on GitHub, or use another repository.`, "data");
+      throw new SyncError(`${SYNC_PATH} on the ${SYNC_BRANCH} branch of ${cfg.repo} isn't a Hearthwood Library file. Rename or remove it on GitHub, or use another repository.`, "data");
     if (!d.sync) d.sync = { rev:0, modified:null, device:null };
     return { sha: meta.sha, data: d };
   });
+}
+/* Makes the data branch from the default branch's latest commit, if it isn't there yet. */
+async function ensureBranch(){
+  const b = await gh(sync, "/branches/" + SYNC_BRANCH);
+  if (b.ok) return;
+  if (b.status !== 404) throw ghError(b, sync);
+  const repo = await gh(sync, ""); if (!repo.ok) throw ghError(repo, sync);
+  const def = (await repo.json()).default_branch;
+  const ref = await gh(sync, "/git/ref/heads/" + encodeURIComponent(def));
+  if (!ref.ok) throw new SyncError(`${sync.repo} has no commits yet. Add a README to it on GitHub, then sync again.`, "data");
+  const head = (await ref.json()).object.sha;
+  const made = await gh(sync, "/git/refs", { method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({ ref:"refs/heads/" + SYNC_BRANCH, sha:head }) });
+  if (!made.ok && made.status !== 422) throw ghError(made, sync, true); // 422: another device just made it
 }
 /* Saves this device's shelf over version `sha` (null = new file). False if GitHub's copy moved meanwhile. */
 async function writeRemote(sha){
   flushSave();
   const rev = data.sync.rev, n = data.books.length;
-  const body = { message:`Update shelf from ${deviceName()} (${n} book${n===1?"":"s"})`, content: toB64(JSON.stringify(data)) };
+  const body = { message:`Update shelf from ${deviceName()} (${n} book${n===1?"":"s"})`, content: toB64(JSON.stringify(data)), branch: SYNC_BRANCH };
   if (sha) body.sha = sha;
   return ghFetch(async ()=>{
+    if (!sha) await ensureBranch();
     const r = await gh(sync, "/contents/" + SYNC_PATH, { method:"PUT", headers:{"Content-Type":"application/json"}, body:JSON.stringify(body) });
     if (r.status === 409 || r.status === 422) return false;
     if (!r.ok) throw ghError(r, sync, true);
@@ -1001,8 +1016,15 @@ function showConflict(remote){
 /* Settings dialog */
 const syncDlg = $("#sync-dlg");
 function syncOut(msg, bad){ const o = $("#sync-out"); o.className = "out" + (bad ? " bad" : ""); o.replaceChildren(...[msg].flat()); }
+/* On a github.io site, suggest the site's own repository. */
+function siteRepo(){
+  const m = location.hostname.match(/^([A-Za-z0-9-]+)\.github\.io$/i); if (!m) return "";
+  const first = location.pathname.split("/").filter(Boolean)[0];
+  return first && !/\.html?$/i.test(first) ? `${m[1]}/${first}` : `${m[1]}/${m[1]}.github.io`;
+}
+let publicOk = "";
 function openSyncDlg(){
-  $("#s-repo").value = sync.repo || "";
+  $("#s-repo").value = sync.repo || siteRepo();
   $("#s-token").value = "";
   $("#s-token").placeholder = sync.token ? "Saved. Paste a new one to replace it." : "github_pat_…";
   $("#s-device").value = sync.device || ""; $("#s-device").placeholder = guessDevice();
@@ -1024,7 +1046,11 @@ $("#sync-form").addEventListener("submit", async e=>{
   syncOut([h("span",{class:"spinner","aria-hidden":"true"})," Checking the repository…"]);
   try{
     const info = await ghFetch(async ()=>{ const r = await gh({repo, token}, ""); if (!r.ok) throw ghError(r, {repo, token}); return r.json(); });
-    if (info.private === false){ syncOut(`${repo} is public, so anyone could read your shelf. Make it private on GitHub (Settings → Danger Zone → Change visibility), or use a different repository.`, true); return; }
+    if (info.private === false && publicOk !== repo){
+      publicOk = repo;
+      syncOut(`${repo} is public: anyone can read your shelf there, including ratings, notes and photos. Press Save and sync again to go ahead.`, true);
+      return;
+    }
     if (info.permissions && info.permissions.push === false){ syncOut(`The token can read ${repo} but not save to it. On GitHub, set the token's Contents permission to “Read and write”.`, true); return; }
     if (repo !== sync.repo){ sync.sha = null; sync.syncedRev = null; sync.lastSync = null; }
     sync.repo = repo; sync.token = token; sync.device = $("#s-device").value.trim(); sync.auto = $("#s-auto").checked;
