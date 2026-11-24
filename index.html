@@ -887,6 +887,39 @@ async function writeRemote(sha){
     return true;
   });
 }
+/* The shelf as it was at version `sha` (the last one both sides agreed on), from GitHub's history. */
+async function readBase(sha){
+  if (!sha) return null;
+  try{
+    const r = await gh(sync, "/git/blobs/" + sha); if (!r.ok) return null;
+    const d = JSON.parse(fromB64((await r.json()).content));
+    return d && Array.isArray(d.books) ? d : null;
+  }catch(e){ return null; }
+}
+/* Three-way merge, book by book and field by field, against the last shelf both sides shared.
+   Added anywhere: kept. Removed on one side: removed, unless the other side edited it since.
+   Changed on one side: that change wins. Same field changed on both: the more recently edited shelf wins.
+   Local book objects are updated in place, so an open book card keeps working. */
+function mergeShelves(base, local, remote, localNewer){
+  const same = (a,b) => JSON.stringify(a) === JSON.stringify(b);
+  const B = new Map(base.map(b=>[b.id,b])), R = new Map(remote.map(b=>[b.id,b])), L = new Set(local.map(b=>b.id));
+  const out = [];
+  for (const l of local){
+    const r = R.get(l.id), b = B.get(l.id);
+    if (!r){ if (!(b && same(l,b))) out.push(l); continue; }   // gone on the other side: drop unless edited here
+    if (!same(l,r)) for (const k of new Set([...Object.keys(l), ...Object.keys(r)])){
+      const bv = b ? b[k] : undefined, lChanged = !same(l[k],bv), rChanged = !same(r[k],bv);
+      if (rChanged && !same(l[k],r[k]) && (!lChanged || !localNewer)){ if (r[k] === undefined) delete l[k]; else l[k] = r[k]; }
+    }
+    out.push(l);
+  }
+  for (const r of remote){
+    if (L.has(r.id)) continue;
+    const b = B.get(r.id);
+    if (!(b && same(r,b))) out.push(r);                          // new over there, or edited there after removal here
+  }
+  return out;
+}
 function adoptRemote(remote){
   clearTimeout(saveTimer); saveTimer = null;
   data = remote.data; lastSaved = JSON.stringify(data.books);
@@ -926,7 +959,19 @@ function runSync(opts={}){
           const from = remote.data.sync.device;
           return finish(`Got the latest shelf${from && from !== deviceName() ? " from your " + from : ""}.`);
         }
-        syncState = "conflict"; syncKind = "conflict"; syncMsg = "Your shelf changed here and on another device. Press Sync to choose which to keep.";
+        const from = remote.data.sync.device && remote.data.sync.device !== deviceName() ? "your " + remote.data.sync.device : "your other device";
+        const base = firstTime ? null : await readBase(sync.sha);
+        if (base){
+          flushSave();
+          const open = bookDlg.open && byId(openBookId), before = open ? JSON.stringify(open) : "";
+          const localNewer = String(data.sync.modified||"") >= String(remote.data.sync.modified||"");
+          data.books = mergeShelves(base.books, data.books, remote.data.books, localNewer);
+          flushSave(); render();
+          if (bookDlg.open && JSON.stringify(byId(openBookId)||null) !== before) drawBook(openBookId);
+          if (await writeRemote(remote.sha)) return finish(`Merged this device's changes with ${from}'s.`);
+          continue;
+        }
+        syncState = "conflict"; syncKind = "conflict"; syncMsg = "This device and GitHub have different shelves. Press Sync to choose which to keep.";
         if (opts.quiet) toast(syncMsg); else showConflict(remote);
         return;
       }
@@ -999,7 +1044,7 @@ function showConflict(remote){
   $("#conflict-body").replaceChildren(
     h("div",{class:"dlg-head"}, h("h2",{id:"conflict-h"},"Two different shelves"),
       h("button",{class:"x",type:"button","aria-label":"Decide later",onclick:()=>conflictDlg.close()},"×")),
-    h("p",{class:"lede"},"This device and GitHub both changed since they last synced. Choose which shelf to keep. The other one is downloaded to this device as a backup file first, so nothing is lost."),
+    h("p",{class:"lede"},"This device and GitHub have different shelves, and this device hasn't synced before, so they can't be merged book by book. Choose which shelf to keep, or combine them. A shelf you don't keep is downloaded to this device as a backup file first, so nothing is lost."),
     h("div",{class:"choices"},
       h("div",{class:"choice"}, h("h3",null,`This device (${deviceName()})`),
         h("p",null, h("b",null,n(here.books.length)), onlyHere ? `, ${onlyHere} not on GitHub` : ""),
@@ -1008,7 +1053,7 @@ function showConflict(remote){
         h("p",null, h("b",null,n(there.books.length)), onlyThere ? `, ${onlyThere} not on this device` : ""),
         h("p",null,"Last changed ", when(there.sync.modified), " on ", thereDevice), keepThere),
       h("div",{class:"choice wide"}, h("h3",null,"Or combine them"),
-        h("p",null,"Keeps every book from both shelves. For a book on both, this device's copy is kept. A book you removed on one device comes back."), combine)),
+        h("p",null,"Keeps every book from both shelves. For a book on both, this device's copy is kept. From then on, changes from both devices merge automatically."), combine)),
     h("div",{class:"actions"}, h("button",{class:"btn ghost",type:"button",onclick:()=>conflictDlg.close()},"Decide later")));
   if (!conflictDlg.open) conflictDlg.showModal();
 }

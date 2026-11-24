@@ -35,8 +35,16 @@ The dot on the Sync button shows the state: green is up to date, gold means chan
 sent, red needs your attention. **Sync automatically** (off by default) checks GitHub when the page
 opens and saves a few seconds after each change. Each save is a commit on the `hearthwood-data` branch.
 
-If both devices changed the shelf before syncing, nothing is overwritten. You choose this device's
-shelf, GitHub's shelf, or a combination of both. The shelf you don't keep is downloaded as a backup file first.
+If both devices changed the shelf before syncing, the changes are merged book by book:
+
+- A book added on either device is kept.
+- A book removed on one device stays removed, unless the other device edited it in the meantime.
+- Different details of the same book (say, a rating on the phone and notes on the computer) are both kept.
+- If both devices changed the same detail of the same book, the more recently edited shelf wins.
+
+The one time you're asked is when a device that already has its own books syncs for the first time. Then
+you choose this device's shelf, GitHub's shelf, or both combined. A shelf you don't keep is downloaded as a
+backup file first.
 
 The token is stored only in each browser you set up and never goes into backups. It can change files in the
 repository it's given, which here includes the website. Any other page you publish on the same `github.io`
